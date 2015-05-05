@@ -2,7 +2,7 @@
 from __future__ import (absolute_import, division,
                         print_function, unicode_literals)
 from collections import OrderedDict
-from .schema import Table, Column, MetaData
+from .schema import MetaData
 
 
 class DataSet(object):
@@ -21,17 +21,8 @@ class DataSet(object):
         self._tables[key][field_name] = field
 
     def create_all(self):
-        tables = OrderedDict()
-        self._generators = self._rule_set.apply_all(self._tables)
-        for table_name, table_data in self._generators.items():
-            args = [table_name, self._metadata]
-            for field_name, factory in table_data.items():
-                args.append(Column(field_name, factory))
-
-            factory = Table(*args)
-            tables[table_name] = factory
-
-        self._metadata.tables = tables
+        tables = self._rule_set.apply_all(self._metadata,
+                                          self._tables)
 
 
 def from_sqlalchemy_tables(tables, rule_set):

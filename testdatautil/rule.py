@@ -9,7 +9,8 @@ from testdata import (RandomInteger, Constant, RandomSelection,
                       DateIntervalFactory,
                       FakeDataFactory, CountingFactory,
                       )
-from sqlalchemy.schema import Column
+from sqlalchemy.schema import Column as SAColumn
+from testdatautil.schema import Column, Table
 
 
 class RuleSet(object):
@@ -46,17 +47,24 @@ class RuleSet(object):
         self._rules[priority] = rule
         self._leng += 1
 
-    def apply_all(self, tables):
+    def apply_all(self, metadata, tables):
         context = OrderedDict()
         rules = list(self._rules.items())
         rules.sort(reverse=True)
+        table_factories = OrderedDict()
         for table_name, table_data in tables.items():
             context.setdefault(table_name, OrderedDict())
+            args = [table_name, metadata]
             for field_name, field in table_data.items():
-                result = self.match(rules, field, table_data,
-                                    context)
-                context[table_name][field_name] = result
-        return context
+                factory = self.match(rules, field, table_data,
+                                     context)
+                args.append(Column(field_name, factory))
+                context[table_name][field_name] = factory
+            factory = Table(*args)
+            table_factories[table_name] = factory
+
+        metadata.tables = table_factories
+        return table_factories
 
 
 class Rule(object):
@@ -119,7 +127,7 @@ class ConstantNone(BottomRule):
 
 class SqlAlchemyRule(Rule):
     def match(self, field, table_data, context):
-        return isinstance(field, Column)
+        return isinstance(field, SAColumn)
 
     def apply(self, field):
         raise NotImplemented()
