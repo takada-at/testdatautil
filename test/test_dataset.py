@@ -14,12 +14,8 @@ def test_DataSet():
     ruleset = SqlAlchemyRuleSet.create()
     dataset0 = dataset.DataSet(ruleset, metadata=metadata)
     for table in tables:
-        classname = 'Factory_' + table.name
         for col in table.columns:
             dataset0.add_item(table.name, col.name, col)
 
-    data = dataset0.evaluate_all()
-    assert "Factory_m_area" in data
-    cls = data['Factory_m_area']
-    assert cls.metadata is metadata
+    dataset0.create_all()
     assert metadata._items

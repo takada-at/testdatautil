@@ -1,34 +1,8 @@
 # -*- coding: utf-8 -*-
 from __future__ import (absolute_import, division,
                         print_function, unicode_literals)
-import testdata
 from collections import OrderedDict
-from .schema import BaseSchema, MetaData, Table, Column
-
-
-file_template = """\
-metadata = MetaData()
-
-{classdefs}
-"""
-
-class_template = """\
-from testdatautil.schema import BaseSchema, MetaData
-from testdata import *
-
-
-class {classname}(BaseSchema):
-    __tablename__ = "{tablename}"
-    _keys = {keys}
-
-    metadata = metadata
-
-{fielddefs}
-"""
-
-field_template = """\
-    {name} = {definition}
-"""
+from .schema import Table, Column, MetaData
 
 
 class DataSet(object):
@@ -52,42 +26,12 @@ class DataSet(object):
         for table_name, table_data in self._generators.items():
             args = [table_name, self._metadata]
             for field_name, factory in table_data.items():
-                args.append(Column(field_name, factory()))
+                args.append(Column(field_name, factory))
 
             factory = Table(*args)
             tables[table_name] = factory
 
         self._metadata.tables = tables
-
-    def evaluate_all(self):
-        self._generators = self._rule_set.apply_all(self._tables)
-        glob = dict(metadata=self._metadata, BaseSchema=BaseSchema)
-        glob.update(vars(testdata))
-        classdefs = []
-        for table_name, table_data in self._tables.items():
-            definition = self.generate_def(table_name, table_data)
-            exec(definition, glob)
-            classdefs.append(definition)
-
-        self._code = file_template.format(classdefs="\n\n".join(classdefs))
-        return glob
-
-    def generate_def(self, table_name, table_data):
-        fielddefs = []
-        keys = []
-        for field_name, _ in table_data.items():
-            generator = self._generators[table_name][field_name]
-            keys.append(field_name)
-            fielddefs.append(field_template.format(
-                name=field_name,
-                definition=generator.generate()))
-
-        class_name = "Factory_" + table_name
-        classdef = class_template.format(classname=class_name,
-                                         keys=repr(keys),
-                                         tablename=table_name,
-                                         fielddefs="\n".join(fielddefs))
-        return classdef
 
 
 def from_sqlalchemy_tables(tables, rule_set):

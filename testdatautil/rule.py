@@ -55,37 +55,6 @@ class RuleSet(object):
                 return result
 
 
-class LazyCall(object):
-    def __init__(self, fn, *args, **kwargs):
-        self._fn = fn
-        self._args = args
-        self._kwargs = kwargs
-
-    def __call__(self, *args, **kwargs):
-        return self._fn(*self._args, **self._kwargs)
-
-    def __repr__(self):
-        res = "LazyCall({}".format(self._fn.__name__)
-        for arg in self._args:
-            res += ", {}".format(repr(arg))
-        for key, val in self._kwargs.items():
-            res += ", {}={}".format(key, repr(val))
-        res += ")"
-        return res
-
-    def generate(self):
-        res = "{}(".format(self._fn.__name__)
-        args = []
-        for arg in self._args:
-            args.append(repr(arg))
-        for key, val in self._kwargs.items():
-            args.append("{}={}".format(key, repr(val)))
-
-        res += ", ".join(args)
-        res += ")"
-        return res
-
-
 class Rule(object):
     def match_all(self, field, table_data, context):
         for base in self.__class__.mro():
@@ -98,29 +67,49 @@ class Rule(object):
         return False
 
     def match(self, field, table_data, context):
+        """
+        rule match condition
+
+        if match return True, else False.
+
+        :param field:
+        :param table_data:
+        :param context:
+        :return:
+        """
         raise NotImplemented
 
     def apply(self, field):
+        """
+        if match, return DataFactory
+
+        DataFactory extends testdata.Factory class
+
+        :param field:
+        :return:
+        """
         raise NotImplemented()
 
 
-class Choice(Rule):
+class BottomRule(Rule):
+    """
+    match always
+    """
+    def match(self, field, table_data, context):
+        return True
+
+
+class Choice(BottomRule):
     def __init__(self, choices):
         self._choices = choices
 
-    def match(self, field, table_data, context):
-        return True
-
     def apply(self, field):
-        return LazyCall(RandomSelection, sequence=self._choices)
+        return RandomSelection(sequence=self._choices)
 
 
-class ConstantNone(Rule):
-    def match(self, field, table_data, context):
-        return True
-
+class ConstantNone(BottomRule):
     def apply(self, field):
-        return LazyCall(Constant, None)
+        return Constant(None)
 
 
 class SqlAlchemyRule(Rule):
@@ -131,80 +120,98 @@ class SqlAlchemyRule(Rule):
         raise NotImplemented()
 
 
-class SAInteger(SqlAlchemyRule):
+class SAFieldNameRule(SqlAlchemyRule):
+    __fieldname__ = None
+
     def match(self, field, table_data, context):
-        return field.type.python_type is int
+        return self.__fieldname__ == field.name
+
+
+class SASuffixRule(SqlAlchemyRule):
+    suffix = None
+
+    def match(self, field, table_data, context):
+        return field.name.endswith(self.suffix)
+
+
+class SATypeRule(SqlAlchemyRule):
+    __python_type__ = None
+
+    def match(self, field, table_data, context):
+        return field.type.python_type is self.__python_type__
+
+
+class SAInteger(SATypeRule):
+    __python_type__ = int
 
     def apply(self, field):
-        return LazyCall(RandomInteger, minimum=0, maximum=100)
+        return RandomInteger(minimum=0, maximum=100)
 
 
-class SAFloat(SqlAlchemyRule):
-    def match(self, field, table_data, context):
-        return field.type.python_type is float
+class SAFloat(SATypeRule):
+    __python_type__ = float
 
     def apply(self, field):
-        return LazyCall(RandomFloat, minimum=0, maximum=100)
+        return RandomFloat(minimum=0.0, maximum=100.0)
 
 
-class SAString(SqlAlchemyRule):
-    def match(self, field, table_data, context):
-        return field.type.python_type is str
+class SAString(SATypeRule):
+    __python_type__ = str
 
     def apply(self, field):
         length = 10
         if hasattr(field, 'length'):
             length = field.length
-        return LazyCall(RandomLengthStringFactory,
-                        min_chars=0, max_chars=length)
+        if length < 5 or field.unique:
+            return RandomLengthStringFactory(min_chars=0, max_chars=length)
+        return FakeDataFactory('word')
 
 
-class SADateTime(SqlAlchemyRule):
+class SADateTime(SATypeRule):
+    __python_type__ = datetime
+
     def __init__(self, basedate=None):
         if basedate is None:
             basedate = datetime.now() - timedelta(days=2)
         self._basedate = basedate
 
-    def match(self, field, table_data, context):
-        return field.type.python_type is datetime
-
     def apply(self, field):
         base = self._basedate
-        return LazyCall(
-            RandomDateFactory,
-            minimum=base, maximum=base + timedelta(days=1))
+        return RandomDateFactory(minimum=base, maximum=base + timedelta(days=1))
 
 
-class SADate(SqlAlchemyRule):
+class SADate(SATypeRule):
+    __python_type__ = date
+
     def __init__(self, basedate=None):
         if basedate is None:
             basedate = date.today() - timedelta(days=10)
         self._basedate = basedate
 
-    def match(self, field, table_data, context):
-        return field.type.python_type is date
-
     def apply(self, field):
         base = self._basedate
-        return LazyCall(
-            RandomDateFactory,
-            minimum=base, maximum=base + timedelta(days=10))
+        return RandomDateFactory(minimum=base, maximum=base + timedelta(days=10))
 
 
-class SAEmail(SAString):
-    def match(self, field, table_data, context):
-        return field.name.endswith('mail')
+class SABoolean(SATypeRule):
+    __python_type__ = bool
 
     def apply(self, field):
-        return LazyCall(FakeDataFactory, 'email')
+        return RandomSelection(sequence=(1, 0))
 
 
-class SAName(SAString):
-    def match(self, field, table_data, context):
-        return field.name.endswith('name')
+class SAEmail(SASuffixRule):
+    suffix = 'mail'
 
     def apply(self, field):
-        return LazyCall(FakeDataFactory, 'name')
+        return FakeDataFactory('email')
+
+
+class SAName(SASuffixRule):
+    suffix = "name"
+
+    def apply(self, field):
+        return FakeDataFactory('first_name')
 
 
 class SAAutoIncrement(SAInteger):
@@ -212,7 +219,7 @@ class SAAutoIncrement(SAInteger):
         return field.primary_key and field.autoincrement
 
     def apply(self, field):
-        return LazyCall(CountingFactory, 1)
+        return CountingFactory(1)
 
 
 class SqlAlchemyRuleSet(RuleSet):

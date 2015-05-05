@@ -11,7 +11,7 @@ from .datagenerator import DataGenerator
 class Command(object):
     def __init__(self, argv=None):
         self.argv = argv or sys.argv[1:]
-        self.prog_name = os.path.basename(self.argv[0])
+        self.prog_name = os.path.basename(sys.argv[0])
 
     def get_parser(self):
         parser = argparse.ArgumentParser(prog=self.prog_name)
