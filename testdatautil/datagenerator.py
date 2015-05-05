@@ -13,6 +13,10 @@ def formatdict(dictdata):
             nval = datetime.strftime(val, "%Y-%m-%d %H:%M:%S")
         elif isinstance(val, date):
             nval = date.strftime(val, "%Y-%m-%d")
+        elif val is None:
+            nval = ''
+        elif isinstance(val, bool):
+            nval = "1" if val else "0"
         else:
             nval = str(val)
         result[key] = nval

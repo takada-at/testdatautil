@@ -7,29 +7,53 @@ sys.path.append(
     os.path.join(os.path.dirname(__file__),
                  '..')
 )
-from testdatautil.cli import execute_from_command_line
-from testdatautil.rule import SqlAlchemyRuleSet, SADateTime
-from testdatautil.dataset import from_sqlalchemy_tables
+from datetime import datetime, timedelta
+from testdata import DateIntervalFactory
+from testdatautil import cli
+from testdatautil import dataset
+from testdatautil.rule import SqlAlchemyRuleSet, SAFieldNameRule
 from pkg import db
 
 
-class StartTime(SqlAlchemyRuleSet):
-    def match(self, rules, field, table_data, context):
-        return field.name == 'starttime'
+class StartDate(SAFieldNameRule):
+    fieldname = 'startdate'
+
+    def apply(self, field):
+        fromdate = (datetime.now() - timedelta(days=120)).date()
+        return DateIntervalFactory(base=fromdate, delta=timedelta(days=1))
+
+
+class StartTime(SAFieldNameRule):
+    fieldname = 'starttime'
+
+    def apply(self, field):
+        fromdate = datetime.now() - timedelta(days=120, minutes=20)
+        return DateIntervalFactory(base=fromdate, delta=timedelta(days=1))
+
+
+class EndTime(SAFieldNameRule):
+    fieldname = 'endtime'
+
+    def apply(self, field):
+        fromdate = datetime.now() - timedelta(days=120)
+        return DateIntervalFactory(base=fromdate, delta=timedelta(seconds=220))
 
 
 class MyRuleSet(SqlAlchemyRuleSet):
     @classmethod
     def create(cls):
         rule = SqlAlchemyRuleSet.create()
+        rule.add_rule(StartTime())
+        rule.add_rule(EndTime())
+        rule.add_rule(StartDate())
         return rule
 
 
 def main():
     rule = MyRuleSet.create()
-    testdatameta = from_sqlalchemy_tables(db.BaseMaster.metadata.sorted_tables,
-                                          rule_set=rule)
-    execute_from_command_line(metadata=testdatameta)
+    testdatameta = dataset.from_sqlalchemy_tables(db.BaseMaster.metadata.sorted_tables,
+                                                  rule_set=rule)
+    cli.execute_from_command_line(metadata=testdatameta)
 
 
 if __name__ == '__main__':

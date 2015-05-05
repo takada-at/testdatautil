@@ -6,6 +6,7 @@ from datetime import datetime, date, timedelta
 from testdata import (RandomInteger, Constant, RandomSelection,
                       RandomLengthStringFactory,
                       RandomDateFactory, RandomFloat,
+                      DateIntervalFactory,
                       FakeDataFactory, CountingFactory,
                       )
 from sqlalchemy.schema import Column
@@ -16,20 +17,30 @@ class RuleSet(object):
     def create(cls, default_rule=None, rules=None):
         return cls(default_rule=default_rule, rules=rules)
 
+    @classmethod
+    def match(cls, rules, field, table_data, context):
+        for priority, rule in rules:
+            if rule.match_all(field, table_data, context):
+                result = rule.apply(field)
+                return result
+
     def __init__(self, default_rule=None, rules=None):
         self._rules = dict()
         self._leng = 0
         self._context = dict()
         if default_rule:
-            self.add(default_rule, priority=-123)
+            self.add_rule(default_rule, priority=-123)
         if rules:
             for rule in rules:
-                self.add(rule)
+                self.add_rule(rule)
 
-    def add(self, rule, priority=None):
+    def add_rule(self, rule, priority=None):
         assert isinstance(rule, Rule)
         if priority is None:
-            priority = self._leng * 10
+            if hasattr(rule, 'base_priority'):
+                priority = rule.base_priority
+            else:
+                priority = self._leng * 10
         while priority in self._rules:
             priority += 1
         self._rules[priority] = rule
@@ -47,16 +58,10 @@ class RuleSet(object):
                 context[table_name][field_name] = result
         return context
 
-    @classmethod
-    def match(cls, rules, field, table_data, context):
-        for priority, rule in rules:
-            if rule.match_all(field, table_data, context):
-                result = rule.apply(field)
-                return result
-
 
 class Rule(object):
     def match_all(self, field, table_data, context):
+        # base classes rule must much
         for base in self.__class__.mro():
             if issubclass(base, Rule) and base is not Rule:
                 if not base.match(self, field=field, table_data=table_data,
@@ -72,18 +77,18 @@ class Rule(object):
 
         if match return True, else False.
 
-        :param field:
-        :param table_data:
-        :param context:
-        :return:
+        :param field: table column
+        :param table_data:dict
+        :param context:dict
+        :return:bool
         """
         raise NotImplemented
 
     def apply(self, field):
         """
-        if match, return DataFactory
+        if match, return Factory
 
-        DataFactory extends testdata.Factory class
+        Factory extends testdata.Factory class
 
         :param field:
         :return:
@@ -121,10 +126,10 @@ class SqlAlchemyRule(Rule):
 
 
 class SAFieldNameRule(SqlAlchemyRule):
-    __fieldname__ = None
+    fieldname = None
 
     def match(self, field, table_data, context):
-        return self.__fieldname__ == field.name
+        return self.fieldname == field.name
 
 
 class SASuffixRule(SqlAlchemyRule):
@@ -135,28 +140,28 @@ class SASuffixRule(SqlAlchemyRule):
 
 
 class SATypeRule(SqlAlchemyRule):
-    __python_type__ = None
+    python_type = None
 
     def match(self, field, table_data, context):
-        return field.type.python_type is self.__python_type__
+        return field.type.python_type is self.python_type
 
 
 class SAInteger(SATypeRule):
-    __python_type__ = int
+    python_type = int
 
     def apply(self, field):
         return RandomInteger(minimum=0, maximum=100)
 
 
 class SAFloat(SATypeRule):
-    __python_type__ = float
+    python_type = float
 
     def apply(self, field):
         return RandomFloat(minimum=0.0, maximum=100.0)
 
 
 class SAString(SATypeRule):
-    __python_type__ = str
+    python_type = str
 
     def apply(self, field):
         length = 10
@@ -168,7 +173,7 @@ class SAString(SATypeRule):
 
 
 class SADateTime(SATypeRule):
-    __python_type__ = datetime
+    python_type = datetime
 
     def __init__(self, basedate=None):
         if basedate is None:
@@ -181,7 +186,7 @@ class SADateTime(SATypeRule):
 
 
 class SADate(SATypeRule):
-    __python_type__ = date
+    python_type = date
 
     def __init__(self, basedate=None):
         if basedate is None:
@@ -193,8 +198,34 @@ class SADate(SATypeRule):
         return RandomDateFactory(minimum=base, maximum=base + timedelta(days=10))
 
 
+class SADateTimeSequence(SATypeRule):
+    python_type = datetime
+
+    def __init__(self, basedate=None):
+        if basedate is None:
+            basedate = datetime.now() - timedelta(days=2)
+        self._basedate = basedate
+
+    def apply(self, field):
+        base = self._basedate
+        return DateIntervalFactory(base=base, delta=timedelta(seconds=121))
+
+
+class SADateSequence(SATypeRule):
+    python_type = date
+
+    def __init__(self, basedate=None):
+        if basedate is None:
+            basedate = date.today() - timedelta(days=10)
+        self._basedate = basedate
+
+    def apply(self, field):
+        base = self._basedate
+        return DateIntervalFactory(base=base, delta=timedelta(days=1))
+
+
 class SABoolean(SATypeRule):
-    __python_type__ = bool
+    python_type = bool
 
     def apply(self, field):
         return RandomSelection(sequence=(1, 0))
@@ -225,15 +256,16 @@ class SAAutoIncrement(SAInteger):
 class SqlAlchemyRuleSet(RuleSet):
     @classmethod
     def create(cls, default_rule=None, rules=None):
+        # default sqlalchemy rule set
         basedate = date.today() - timedelta(days=10)
         basedatetime = datetime.now() - timedelta(days=10)
         rule_set = RuleSet.create(default_rule=ConstantNone())
-        rule_set.add(SAInteger())
-        rule_set.add(SAFloat())
-        rule_set.add(SAString())
-        rule_set.add(SADateTime(basedatetime))
-        rule_set.add(SADate(basedate))
-        rule_set.add(SAName())
-        rule_set.add(SAEmail())
-        rule_set.add(SAAutoIncrement(), priority=9999)
+        rule_set.add_rule(SAInteger())
+        rule_set.add_rule(SAFloat())
+        rule_set.add_rule(SAString())
+        rule_set.add_rule(SADateTime(basedatetime))
+        rule_set.add_rule(SADate(basedate))
+        rule_set.add_rule(SAName())
+        rule_set.add_rule(SAEmail())
+        rule_set.add_rule(SAAutoIncrement(), priority=9999)
         return rule_set

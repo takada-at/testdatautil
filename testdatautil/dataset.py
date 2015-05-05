@@ -41,6 +41,5 @@ def from_sqlalchemy_tables(tables, rule_set):
         for col in table.columns:
             datasets.add_item(table.name, col.name, col)
 
-    #datasets.evaluate_all()
     datasets.create_all()
     return metadata
