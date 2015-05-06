@@ -18,7 +18,7 @@ from pkg import db
 class StartDate(SAFieldNameRule):
     fieldname = 'startdate'
 
-    def apply(self, field):
+    def build(self, field):
         fromdate = (datetime.now() - timedelta(days=120)).date()
         return DateIntervalFactory(base=fromdate, delta=timedelta(days=1))
 
@@ -26,7 +26,7 @@ class StartDate(SAFieldNameRule):
 class StartTime(SAFieldNameRule):
     fieldname = 'starttime'
 
-    def apply(self, field):
+    def build(self, field):
         fromdate = datetime.now() - timedelta(days=120, minutes=20)
         return DateIntervalFactory(base=fromdate, delta=timedelta(days=1))
 
@@ -34,7 +34,7 @@ class StartTime(SAFieldNameRule):
 class EndTime(SAFieldNameRule):
     fieldname = 'endtime'
 
-    def apply(self, field):
+    def build(self, field):
         fromdate = datetime.now() - timedelta(days=120)
         return DateIntervalFactory(base=fromdate, delta=timedelta(seconds=220))
 

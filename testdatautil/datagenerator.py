@@ -38,14 +38,16 @@ class CsvFormatter(Formatter):
     def write(self, table_name, dataschema):
         filename = "{}.csv".format(table_name)
         path = os.path.join(self._directory, filename)
-        assert os.path.exists(self._directory)
         with open(path, 'w') as fio:
-            keys = dataschema.keys()
-            writer = csv.DictWriter(fio, fieldnames=keys)
-            if self._write_header:
-                writer.writeheader()
+            writer = csv.writer(fio, delimiter=self._sep.decode("utf-8"))
+            keys = None
             for data in dataschema.generate(self._length):
-                writer.writerow(formatdict(data))
+                formatted = formatdict(data)
+                if keys is None:
+                    keys = formatted.keys()
+                    if self._write_header:
+                        writer.writerow([key for key in keys])
+                writer.writerow([formatted[key] for key in keys])
 
 
 class DataGenerator(object):

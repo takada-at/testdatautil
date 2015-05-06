@@ -22,11 +22,12 @@ class RuleSet(object):
     def match(cls, rules, field, table_data, context):
         for priority, rule in rules:
             if rule.match_all(field, table_data, context):
-                result = rule.apply(field)
+                result = rule.build(field)
                 return result
 
     def __init__(self, default_rule=None, rules=None):
         self._rules = dict()
+        self._table_rules = dict()
         self._leng = 0
         self._context = dict()
         if default_rule:
@@ -42,17 +43,25 @@ class RuleSet(object):
                 priority = rule.base_priority
             else:
                 priority = self._leng * 10
-        while priority in self._rules:
+        # classifying table rules and other rules
+        if isinstance(rule, TableRule):
+            target = self._table_rules
+        else:
+            target = self._rules
+        while priority in target:
             priority += 1
-        self._rules[priority] = rule
+        target[priority] = rule
         self._leng += 1
 
     def apply_all(self, metadata, tables):
         context = OrderedDict()
         rules = list(self._rules.items())
         rules.sort(reverse=True)
+        table_rules = list(self._table_rules.items())
+        table_rules.sort(reverse=True)
         table_factories = OrderedDict()
-        for table_name, table_data in tables.items():
+        for table_data in tables:
+            table_name = table_data.name
             context.setdefault(table_name, OrderedDict())
             args = [table_name, metadata]
             for field_name, field in table_data.items():
@@ -92,7 +101,7 @@ class Rule(object):
         """
         raise NotImplemented
 
-    def apply(self, field):
+    def build(self, field):
         """
         if match, return Factory
 
@@ -102,6 +111,10 @@ class Rule(object):
         :return:
         """
         raise NotImplemented()
+
+
+class TableRule(Rule):
+    pass
 
 
 class BottomRule(Rule):
@@ -116,12 +129,12 @@ class Choice(BottomRule):
     def __init__(self, choices):
         self._choices = choices
 
-    def apply(self, field):
+    def build(self, field):
         return RandomSelection(sequence=self._choices)
 
 
 class ConstantNone(BottomRule):
-    def apply(self, field):
+    def build(self, field):
         return Constant(None)
 
 
@@ -129,7 +142,7 @@ class SqlAlchemyRule(Rule):
     def match(self, field, table_data, context):
         return isinstance(field, SAColumn)
 
-    def apply(self, field):
+    def build(self, field):
         raise NotImplemented()
 
 
@@ -157,21 +170,21 @@ class SATypeRule(SqlAlchemyRule):
 class SAInteger(SATypeRule):
     python_type = int
 
-    def apply(self, field):
+    def build(self, field):
         return RandomInteger(minimum=0, maximum=100)
 
 
 class SAFloat(SATypeRule):
     python_type = float
 
-    def apply(self, field):
+    def build(self, field):
         return RandomFloat(minimum=0.0, maximum=100.0)
 
 
 class SAString(SATypeRule):
     python_type = str
 
-    def apply(self, field):
+    def build(self, field):
         length = 10
         if hasattr(field, 'length'):
             length = field.length
@@ -188,7 +201,7 @@ class SADateTime(SATypeRule):
             basedate = datetime.now() - timedelta(days=2)
         self._basedate = basedate
 
-    def apply(self, field):
+    def build(self, field):
         base = self._basedate
         return RandomDateFactory(minimum=base, maximum=base + timedelta(days=1))
 
@@ -201,7 +214,7 @@ class SADate(SATypeRule):
             basedate = date.today() - timedelta(days=10)
         self._basedate = basedate
 
-    def apply(self, field):
+    def build(self, field):
         base = self._basedate
         return RandomDateFactory(minimum=base, maximum=base + timedelta(days=10))
 
@@ -214,7 +227,7 @@ class SADateTimeSequence(SATypeRule):
             basedate = datetime.now() - timedelta(days=2)
         self._basedate = basedate
 
-    def apply(self, field):
+    def build(self, field):
         base = self._basedate
         return DateIntervalFactory(base=base, delta=timedelta(seconds=121))
 
@@ -227,7 +240,7 @@ class SADateSequence(SATypeRule):
             basedate = date.today() - timedelta(days=10)
         self._basedate = basedate
 
-    def apply(self, field):
+    def build(self, field):
         base = self._basedate
         return DateIntervalFactory(base=base, delta=timedelta(days=1))
 
@@ -235,21 +248,21 @@ class SADateSequence(SATypeRule):
 class SABoolean(SATypeRule):
     python_type = bool
 
-    def apply(self, field):
+    def build(self, field):
         return RandomSelection(sequence=(1, 0))
 
 
 class SAEmail(SASuffixRule):
     suffix = 'mail'
 
-    def apply(self, field):
+    def build(self, field):
         return FakeDataFactory('email')
 
 
 class SAName(SASuffixRule):
     suffix = "name"
 
-    def apply(self, field):
+    def build(self, field):
         return FakeDataFactory('first_name')
 
 
@@ -257,7 +270,7 @@ class SAAutoIncrement(SAInteger):
     def match(self, field, table_data, context):
         return field.primary_key and field.autoincrement
 
-    def apply(self, field):
+    def build(self, field):
         return CountingFactory(1)
 
 
