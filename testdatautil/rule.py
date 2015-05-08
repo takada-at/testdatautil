@@ -321,7 +321,7 @@ class SAName(SASuffixRule):
 
 class SAAutoIncrement(SAInteger):
     def match(self, field, context):
-        return field.primary_key and field.autoincrement
+        return field.primary_key
 
     def build(self, field):
         return CountingFactory(1)
@@ -339,6 +339,7 @@ class SqlAlchemyRuleSet(RuleSet):
         rule_set.add_rule(SAString())
         rule_set.add_rule(SADateTime(basedatetime))
         rule_set.add_rule(SADate(basedate))
+        rule_set.add_rule(SABoolean())
         rule_set.add_rule(SAName())
         rule_set.add_rule(SAEmail())
         rule_set.add_rule(SAIntUnique())

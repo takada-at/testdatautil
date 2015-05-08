@@ -31,6 +31,12 @@ class Formatter(object):
         self._directory = directory
         self._length = length
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return self
+
     def write(self, table_name, dataschema):
         filename = "{}{}".format(table_name, self.ext)
         path = os.path.join(self._directory, filename)
@@ -47,15 +53,27 @@ class PythonFormatter(Formatter):
     def __init__(self, directory, length):
         self._directory = directory
         self._length = length
-        filename = 'mockdata.py'
+        self._file_handle = None
+        self._tables = []
+
+    def __enter__(self):
+        self._tables = []
+        filename = 'dummydata.py'
         path = os.path.join(self._directory, filename)
         self._file_handle = open(path,'w')
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._file_handle.close()
+        return self
 
     def write(self, table_name, dataschema):
         self.write_file(dataschema, file_handle=self._file_handle)
 
     def write_file(self, dataschema, file_handle):
-        file_handle.write('{} = [\n'.format(dataschema.name))
+        table_name = dataschema.name
+        self._tables.append(table_name)
+        file_handle.write('{} = [\n'.format(table_name))
         for data in dataschema.generate(self._length):
             file_handle.write('    {},\n'.format(repr(dict(data))))
 
@@ -73,6 +91,8 @@ class JsonFormatter(Formatter):
 
 
 class CsvFormatter(Formatter):
+    ext = '.csv'
+
     def __init__(self, directory, length, sep=b",",
                  write_header=True):
         self._directory = directory
@@ -82,7 +102,7 @@ class CsvFormatter(Formatter):
 
     def write_file(self, dataschema, file_handle):
         writer = csv.writer(file_handle,
-                            delimiter=self._sep.decode("utf-8"))
+                            delimiter=self._sep)
         keys = dataschema.keys()
         if self._write_header:
             writer.writerow([key for key in keys])
@@ -93,7 +113,7 @@ class CsvFormatter(Formatter):
 
 class DataGenerator(object):
     def __init__(self, metadata, directory,
-                 table_names, sep=b',',
+                 table_names, sep=',',
                  write_header=True,
                  format='csv',
                  length=10, formatter=None):
@@ -115,7 +135,8 @@ class DataGenerator(object):
 
     def generate(self):
         items = self._metadata.tables
-        for table_name in self._table_names:
-            if table_name in items:
-                schema = items[table_name]
-                self._formatter.write(table_name, schema)
+        with self._formatter as formatter:
+            for table_name in self._table_names:
+                if table_name in items:
+                    schema = items[table_name]
+                    formatter.write(table_name, schema)
