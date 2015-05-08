@@ -19,6 +19,7 @@ class Command(object):
                             type=os.path.expanduser,
                             default=os.path.expanduser('./data'),
                             help="save directory")
+        parser.add_argument('-f', '--format', default='csv', choices=('csv', 'python', 'json'))
         parser.add_argument('-s', '--sep', default=b',',
                             help='csv option. delimiter')
         parser.add_argument('-r', '--repeat',
@@ -30,9 +31,7 @@ class Command(object):
         parser.add_argument('--tables', action='store', nargs='*')
         return parser
 
-    def execute(self, metadata):
-        parser = self.get_parser()
-        args = parser.parse_args(self.argv)
+    def execute(self, args, metadata):
         if not os.path.exists(args.directory):
             print('create directory {}'.format(args.directory))
             os.mkdir(args.directory)
@@ -40,6 +39,7 @@ class Command(object):
         generator = DataGenerator(metadata=metadata, directory=args.directory,
                                   table_names=args.tables, sep=args.sep,
                                   length=args.repeat,
+                                  format=args.format,
                                   write_header=not args.noheader,
                                   )
         generator.generate()
@@ -47,4 +47,6 @@ class Command(object):
 
 def execute_from_command_line(argv=None, metadata=None):
     command = Command(argv)
-    command.execute(metadata)
+    parser = command.get_parser()
+    args = parser.parse_args(command.argv)
+    command.execute(args, metadata)

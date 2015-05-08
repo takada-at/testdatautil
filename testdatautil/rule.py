@@ -11,17 +11,40 @@ from testdata import (RandomInteger, Constant, RandomSelection,
                       )
 from sqlalchemy.schema import Column as SAColumn
 from testdatautil.schema import Column, Table
+from .factory import WordFactory, PrefixedCountingFactory
+
+
+class RuleContext(object):
+    def __init__(self, rule_set):
+        self._all_tables = OrderedDict()
+        self.current_table = None
+        self.rule_set = rule_set
+
+    def add_table_factory(self, table_factory):
+        self._all_tables[table_factory.name] = table_factory
+
+    def find_table(self, table_name):
+        return self._all_tables.get(table_name)
+
+    def find_field(self, table_name, field_name):
+        table = self.find_table(table_name)
+        if table:
+            return table.get(field_name)
 
 
 class RuleSet(object):
+    """set of rules
+
+    apply all rules
+    """
     @classmethod
     def create(cls, default_rule=None, rules=None):
         return cls(default_rule=default_rule, rules=rules)
 
     @classmethod
-    def match(cls, rules, field, table_data, context):
+    def match(cls, rules, field, context=None):
         for priority, rule in rules:
-            if rule.match_all(field, table_data, context):
+            if rule.match_all(field, context):
                 result = rule.build(field)
                 return result
 
@@ -29,7 +52,6 @@ class RuleSet(object):
         self._rules = dict()
         self._table_rules = dict()
         self._leng = 0
-        self._context = dict()
         if default_rule:
             self.add_rule(default_rule, priority=-123)
         if rules:
@@ -53,62 +75,77 @@ class RuleSet(object):
         target[priority] = rule
         self._leng += 1
 
-    def apply_all(self, metadata, tables):
-        context = OrderedDict()
+    @property
+    def rules(self):
         rules = list(self._rules.items())
         rules.sort(reverse=True)
-        table_rules = list(self._table_rules.items())
-        table_rules.sort(reverse=True)
+        return rules
+
+    @property
+    def table_rules(self):
+        rules = list(self._table_rules.items())
+        rules.sort(reverse=True)
+        return rules
+
+    def apply_all(self, metadata, tables):
+        rules = self.rules
+        table_rules = self.table_rules
         table_factories = OrderedDict()
+        rule_context = RuleContext(self)
         for table_data in tables:
+            rule_context.current_table = table_data
             table_name = table_data.name
-            context.setdefault(table_name, OrderedDict())
-            args = [table_name, metadata]
-            for field_name, field in table_data.items():
-                factory = self.match(rules, field, table_data,
-                                     context)
-                args.append(Column(field_name, factory))
-                context[table_name][field_name] = factory
-            factory = Table(*args)
-            table_factories[table_name] = factory
+            # apply table rule
+            table_factory = self.match(table_rules, table_data)
+            if not table_factory:
+                # apply field rules
+                args = [table_name, metadata]
+                for field_name, field in table_data.items():
+                    factory = self.match(rules, field, rule_context)
+                    args.append(Column(field_name, factory))
+
+                table_factory = Table(*args)
+
+            table_factories[table_name] = table_factory
+            rule_context.add_table_factory(table_factory)
+            rule_context.current_table = None
 
         metadata.tables = table_factories
         return table_factories
 
 
 class Rule(object):
-    def match_all(self, field, table_data, context):
-        # base classes rule must much
-        for base in self.__class__.mro():
-            if issubclass(base, Rule) and base is not Rule:
-                if not base.match(self, field=field, table_data=table_data,
-                                  context=context):
-                    return False
-        if self.match(field, table_data, context):
+    inherit_rule = True
+
+    def match_all(self, field, context):
+        # base classes rule
+        if self.inherit_rule:
+            for base in self.__class__.mro():
+                if issubclass(base, Rule) and base is not Rule:
+                    if not base.match(self, field=field, context=context):
+                        return False
+        if self.match(field, context):
             return True
         return False
 
-    def match(self, field, table_data, context):
+    def match(self, field, context):
         """
         rule match condition
 
         if match return True, else False.
 
         :param field: table column
-        :param table_data:dict
-        :param context:dict
+        :param context:RuleContext
         :return:bool
         """
         raise NotImplemented
 
     def build(self, field):
         """
-        if match, return Factory
-
-        Factory extends testdata.Factory class
+        if match, return testdata.Factory
 
         :param field:
-        :return:
+        :return:Factory
         """
         raise NotImplemented()
 
@@ -121,7 +158,7 @@ class BottomRule(Rule):
     """
     match always
     """
-    def match(self, field, table_data, context):
+    def match(self, field, context):
         return True
 
 
@@ -139,7 +176,7 @@ class ConstantNone(BottomRule):
 
 
 class SqlAlchemyRule(Rule):
-    def match(self, field, table_data, context):
+    def match(self, field, context):
         return isinstance(field, SAColumn)
 
     def build(self, field):
@@ -149,21 +186,21 @@ class SqlAlchemyRule(Rule):
 class SAFieldNameRule(SqlAlchemyRule):
     fieldname = None
 
-    def match(self, field, table_data, context):
+    def match(self, field, context):
         return self.fieldname == field.name
 
 
 class SASuffixRule(SqlAlchemyRule):
     suffix = None
 
-    def match(self, field, table_data, context):
+    def match(self, field, context):
         return field.name.endswith(self.suffix)
 
 
 class SATypeRule(SqlAlchemyRule):
     python_type = None
 
-    def match(self, field, table_data, context):
+    def match(self, field, context):
         return field.type.python_type is self.python_type
 
 
@@ -190,7 +227,7 @@ class SAString(SATypeRule):
             length = field.length
         if length < 5 or field.unique:
             return RandomLengthStringFactory(min_chars=0, max_chars=length)
-        return FakeDataFactory('word')
+        return WordFactory(length=length)
 
 
 class SADateTime(SATypeRule):
@@ -252,6 +289,22 @@ class SABoolean(SATypeRule):
         return RandomSelection(sequence=(1, 0))
 
 
+class SAIntUnique(SAInteger):
+    def match(self, field, context):
+        return field.unique
+
+    def build(self, field):
+        return CountingFactory(1)
+
+
+class SAStrUnique(SAString):
+    def match(self, field, context):
+        return field.unique
+
+    def build(self, field):
+        return PrefixedCountingFactory(prefix=field.name + '_')
+
+
 class SAEmail(SASuffixRule):
     suffix = 'mail'
 
@@ -267,7 +320,7 @@ class SAName(SASuffixRule):
 
 
 class SAAutoIncrement(SAInteger):
-    def match(self, field, table_data, context):
+    def match(self, field, context):
         return field.primary_key and field.autoincrement
 
     def build(self, field):
@@ -288,5 +341,7 @@ class SqlAlchemyRuleSet(RuleSet):
         rule_set.add_rule(SADate(basedate))
         rule_set.add_rule(SAName())
         rule_set.add_rule(SAEmail())
+        rule_set.add_rule(SAIntUnique())
+        rule_set.add_rule(SAStrUnique())
         rule_set.add_rule(SAAutoIncrement(), priority=9999)
         return rule_set

@@ -30,11 +30,16 @@ class Table(Factory):
         self.metadata = metadata
         self.columns = columns
         keys = []
+        self._dic = OrderedDict()
         for col in self.columns:
             keys.append(col.name)
+            self._dic[col.name] = col
 
         self._keys = keys
         Factory.__init__(self)
+
+    def __getitem__(self, item):
+        return self._dic[item]
 
     def __iter__(self):
         columns = []

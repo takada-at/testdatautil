@@ -32,7 +32,7 @@ class MStage(BaseMaster):
 class MProduct(BaseMaster):
     __tablename__ = "m_product"
     id = Column(INTEGER, primary_key=True)
-    product_id = Column(VARCHAR(50))
+    product_id = Column(VARCHAR(50), unique=True)
     tier = Column(VARCHAR(50))
     price = Column(INTEGER)
     amount = Column(INTEGER)
