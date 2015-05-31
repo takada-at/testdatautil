@@ -2,7 +2,7 @@
 from __future__ import (absolute_import, division,
                         print_function, unicode_literals)
 from collections import OrderedDict
-from testdata.base import Factory
+from factory.base import (FactoryMetaClass, Factory)
 
 
 class MetaData(object):
@@ -24,9 +24,11 @@ class MetaData(object):
         return self._items.items()
 
 
-class Table(Factory):
-    def __init__(self, name, metadata, *columns):
+class Table(object):
+    def __init__(self, name, model_class,
+                 metadata, *columns):
         self.name = name
+        self.model_class = model_class
         self.metadata = metadata
         self.columns = columns
         keys = []
@@ -36,57 +38,26 @@ class Table(Factory):
             self._dic[col.name] = col
 
         self._keys = keys
-        Factory.__init__(self)
 
     def __getitem__(self, item):
         return self._dic[item]
 
-    def __iter__(self):
-        columns = []
-        for col in self.columns:
-            columns.append(iter(col))
-
-        return super(Table, self).__iter__()
-
     def keys(self):
         return self._keys
 
-    def increase_index(self):
-        super(Table, self).increase_index()
-        for col in self.columns:
-            col.increase_index()
+    def convert_to_factory(self, **kwargs):
+        params = dict(kwargs)
+        params['model'] = self.model_class
+        metaclass = type("Meta", None, params)
+        factory_params = dict(Meta=metaclass)
+        for key in self.keys():
+            factory_params[key] = getattr(self, key).factory
 
-    def set_element_amount(self, element_amount):
-        for col in self.columns:
-            col.set_element_amount(element_amount)
-
-        super(Table, self).set_element_amount(element_amount)
-
-    def __call__(self, *args, **kwargs):
-        result = OrderedDict()
-        for col in self.columns:
-            result[col.name] = col()
-
-        return result
+        class_name = "{}Factory".format(model.__name__)
+        return FactoryMetaClass(class_name, (Factory,), factory_params)
 
 
-class Column(Factory):
+class Column(object):
     def __init__(self, name, factory):
         self.name = name
         self.factory = factory
-        Factory.__init__(self)
-
-    def __iter__(self):
-        self.factory = iter(self.factory)
-        return super(Column, self).__iter__()
-
-    def set_element_amount(self, element_amount):
-        super(Column, self).set_element_amount(element_amount)
-        self.factory.set_element_amount(element_amount)
-
-    def increase_index(self):
-        super(Column, self).increase_index()
-        self.factory.increase_index()
-
-    def __call__(self, *args, **kwargs):
-        return self.factory()

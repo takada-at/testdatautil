@@ -3,15 +3,11 @@ from __future__ import (absolute_import, division,
                         print_function, unicode_literals)
 from collections import OrderedDict
 from datetime import datetime, date, timedelta
-from testdata import (RandomInteger, Constant, RandomSelection,
-                      RandomLengthStringFactory,
-                      RandomDateFactory, RandomFloat,
-                      DateIntervalFactory,
-                      FakeDataFactory, CountingFactory,
-                      )
+import factory
+from factory import fuzzy
+from .factory import WordFactory, FakeDataFactory, DateIntervalFactory
 from sqlalchemy.schema import Column as SAColumn
-from testdatautil.schema import Column, Table
-from .factory import WordFactory, PrefixedCountingFactory
+from .schema import Column, Table
 
 
 class RuleContext(object):
@@ -34,8 +30,6 @@ class RuleContext(object):
 
 class RuleSet(object):
     """set of rules
-
-    apply all rules
     """
     @classmethod
     def create(cls, default_rule=None, rules=None):
@@ -43,6 +37,16 @@ class RuleSet(object):
 
     @classmethod
     def match(cls, rules, field, context=None):
+        """
+
+        :param rules:
+        :type rules: list[Rule]
+        :param field:
+        :param context:
+        :type context: RuleContext
+        :return:
+        :rtype: Table or Column
+        """
         for priority, rule in rules:
             if rule.match_all(field, context):
                 result = rule.build(field)
@@ -88,6 +92,14 @@ class RuleSet(object):
         return rules
 
     def apply_all(self, metadata, tables):
+        """
+
+        :param metadata:
+        :type metadata: MetaData
+        :param tables:
+        :type tables: list[TableData]
+        :return:
+        """
         rules = self.rules
         table_rules = self.table_rules
         table_factories = OrderedDict()
@@ -99,10 +111,10 @@ class RuleSet(object):
             table_factory = self.match(table_rules, table_data)
             if not table_factory:
                 # apply field rules
-                args = [table_name, metadata]
+                args = [table_name, table_data.model_class, metadata]
                 for field_name, field in table_data.items():
-                    factory = self.match(rules, field, rule_context)
-                    args.append(Column(field_name, factory))
+                    factory_obj = self.match(rules, field, rule_context)
+                    args.append(Column(field_name, factory_obj))
 
                 table_factory = Table(*args)
 
@@ -116,6 +128,8 @@ class RuleSet(object):
 
 class Rule(object):
     inherit_rule = True
+    """match only if the parent class rule match
+    """
 
     def match_all(self, field, context):
         # base classes rule
@@ -142,16 +156,28 @@ class Rule(object):
 
     def build(self, field):
         """
-        if match, return testdata.Factory
+        if match, return Factory
 
         :param field:
-        :return:Factory
+        :return:
+        :rtype: factory.Factory
         """
         raise NotImplemented()
 
 
 class TableRule(Rule):
-    pass
+    def match(self, table_data, context):
+        """
+        rule match condition
+
+        if match return True, else False.
+
+        :param table_data: table
+        :type table_data: TableData
+        :param context:RuleContext
+        :return:bool
+        """
+        raise NotImplemented
 
 
 class BottomRule(Rule):
@@ -167,12 +193,12 @@ class Choice(BottomRule):
         self._choices = choices
 
     def build(self, field):
-        return RandomSelection(sequence=self._choices)
+        return fuzzy.FuzzyChoice(self._choices)
 
 
 class ConstantNone(BottomRule):
     def build(self, field):
-        return Constant(None)
+        return factory.LazyAttribute(lambda x: None)
 
 
 class SqlAlchemyRule(Rule):
@@ -208,14 +234,14 @@ class SAInteger(SATypeRule):
     python_type = int
 
     def build(self, field):
-        return RandomInteger(minimum=0, maximum=100)
+        return fuzzy.FuzzyInteger(low=0, high=100)
 
 
 class SAFloat(SATypeRule):
     python_type = float
 
     def build(self, field):
-        return RandomFloat(minimum=0.0, maximum=100.0)
+        return fuzzy.FuzzyFloat(low=0.0, high=100.0)
 
 
 class SAString(SATypeRule):
@@ -226,7 +252,7 @@ class SAString(SATypeRule):
         if hasattr(field, 'length'):
             length = field.length
         if length < 5 or field.unique:
-            return RandomLengthStringFactory(min_chars=0, max_chars=length)
+            return fuzzy.FuzzyText(length=length)
         return WordFactory(length=length)
 
 
@@ -240,7 +266,8 @@ class SADateTime(SATypeRule):
 
     def build(self, field):
         base = self._basedate
-        return RandomDateFactory(minimum=base, maximum=base + timedelta(days=1))
+        return fuzzy.FuzzyNaiveDateTime(start_dt=base,
+                                        end_dt=base + timedelta(days=1))
 
 
 class SADate(SATypeRule):
@@ -253,7 +280,8 @@ class SADate(SATypeRule):
 
     def build(self, field):
         base = self._basedate
-        return RandomDateFactory(minimum=base, maximum=base + timedelta(days=10))
+        return fuzzy.FuzzyDate(start_date=base,
+                               end_date=base + timedelta(days=10))
 
 
 class SADateTimeSequence(SATypeRule):
@@ -286,7 +314,7 @@ class SABoolean(SATypeRule):
     python_type = bool
 
     def build(self, field):
-        return RandomSelection(sequence=(1, 0))
+        return fuzzy.FuzzyChoice((False, True))
 
 
 class SAIntUnique(SAInteger):
@@ -294,7 +322,7 @@ class SAIntUnique(SAInteger):
         return field.unique
 
     def build(self, field):
-        return CountingFactory(1)
+        return factory.Sequence(lambda n: n+1)
 
 
 class SAStrUnique(SAString):
@@ -302,7 +330,8 @@ class SAStrUnique(SAString):
         return field.unique
 
     def build(self, field):
-        return PrefixedCountingFactory(prefix=field.name + '_')
+        return factory.LazyAttribute(
+            lambda x: "{}_{}".format(field.name, x+1))
 
 
 class SAEmail(SASuffixRule):
@@ -324,7 +353,7 @@ class SAAutoIncrement(SAInteger):
         return field.primary_key
 
     def build(self, field):
-        return CountingFactory(1)
+        return factory.Sequence(lambda n: n+1)
 
 
 class SqlAlchemyRuleSet(RuleSet):

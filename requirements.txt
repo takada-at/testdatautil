@@ -1,2 +1,2 @@
-git+https://github.com/takada-at/python-testdata.git@takada-at/python3
+factory-boy
 SQLAlchemy

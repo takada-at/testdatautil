@@ -8,9 +8,9 @@ sys.path.append(
                  '..')
 )
 from datetime import datetime, timedelta
-from testdata import DateIntervalFactory
 from testdatautil import cli
 from testdatautil import dataset
+from testdatautil.factory import DateIntervalFactory
 from testdatautil.rule import SqlAlchemyRuleSet, SAFieldNameRule
 from pkg import db
 
@@ -51,7 +51,10 @@ class MyRuleSet(SqlAlchemyRuleSet):
 
 def main():
     rule = MyRuleSet.create()
-    testdatameta = dataset.from_sqlalchemy_tables(db.BaseMaster.metadata.sorted_tables,
+    class_registry = db.BaseMaster._decl_class_registry
+    models = [model for model in class_registry.values()
+              if isinstance(model, type) and issubclass(model, db.BaseMaster)]
+    testdatameta = dataset.from_sqlalchemy_models(models,
                                                   rule_set=rule)
     cli.execute_from_command_line(metadata=testdatameta)
 
